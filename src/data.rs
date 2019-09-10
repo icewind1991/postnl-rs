@@ -59,8 +59,8 @@ pub struct Status {
     pub delivery_location: DeliveryLocation,
     pub delivery: Delivery,
     pub return_eligibility: ReturnEligibility,
-    pub dimensions: String,
-    pub weight: String,
+    pub dimensions: Option<String>,
+    pub weight: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -83,7 +83,7 @@ pub struct DeliveryLocation {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Delivery {
-    pub delivery_date: DateTime<Utc>,
+    pub delivery_date: Option<DateTime<Utc>>,
     pub has_proof_of_delivery: bool,
     pub signature_url: Option<String>,
     pub delivery_address: Option<Box<Address>>,
@@ -115,11 +115,14 @@ pub struct Settings {
 #[derive(Clone, Debug, Deserialize, Display)]
 pub enum PushStatus {
     Unavailable,
+    On,
+    Off,
 }
 
 #[derive(Clone, Debug, Deserialize, Display)]
 pub enum DeliveryStatus {
     Delivered,
+    Enroute,
 }
 
 #[derive(Clone, Debug, Deserialize, Display)]
