@@ -84,7 +84,7 @@ static _LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters";
 static _VALIDATE_LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters/validation";
 
 impl PostNL {
-    pub fn new(username: String, password: String) -> Result<Self> {
+    pub fn new(username: impl ToString, password: impl ToString) -> Result<Self> {
         let mut headers = header::HeaderMap::new();
         headers.insert("api-version", header::HeaderValue::from_static("4.16"));
         headers.insert(
@@ -93,8 +93,8 @@ impl PostNL {
         );
 
         Ok(PostNL {
-            username,
-            password,
+            username: username.to_string(),
+            password: password.to_string(),
             token: RefCell::default(),
             client: Client::builder()
                 .default_headers(headers)
