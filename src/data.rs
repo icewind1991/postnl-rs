@@ -383,6 +383,24 @@ impl FormattedStatus {
 
         Ok(params)
     }
+
+    pub fn short(&self) -> String {
+        Self::format(&self.short_raw, &self.short_params)
+    }
+
+    pub fn body(&self) -> String {
+        Self::format(&self.body_raw, &self.body_params)
+    }
+
+    fn format(format: &str, params: &[FormattedStatusParams]) -> String {
+        lazy_static! {
+            static ref RE: Regex = Regex::new(r"\{\}").unwrap();
+        }
+
+        params.iter().fold(format.to_string(), |result, param| {
+            RE.replace(&result, param.to_string().as_str()).to_string()
+        })
+    }
 }
 
 impl TryFrom<RawFormattedStatus> for FormattedStatus {
