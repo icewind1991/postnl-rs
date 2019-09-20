@@ -12,7 +12,9 @@ fn main() {
         env.get("PASSWORD").expect("password not set"),
     )
     .unwrap();
-    for package in client.get_packages().unwrap().into_iter() {
+    let packages = client.get_packages().unwrap();
+    dbg!(&packages[0]);
+    for package in packages.into_iter() {
         println!(
             "{}({}) - {}",
             package.settings.title, package.key, package.status.delivery_status

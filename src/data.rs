@@ -1,7 +1,15 @@
-use chrono::{DateTime, Utc};
+use chrono::{Date, DateTime, FixedOffset, NaiveTime, Utc};
 use iso_country::Country;
+use lazy_static::lazy_static;
 use parse_display::Display;
+use regex::{Captures, Regex};
+use serde::de::{self, Deserializer};
+use serde::export::TryFrom;
 use serde::Deserialize;
+use std::fmt;
+use uom::si::f32::{Length, Mass};
+use uom::si::length::{centimeter, meter};
+use uom::si::mass::{gram, kilogram};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,11 +21,13 @@ pub struct Package {
     pub recipient: Party,
     pub status: Status,
     pub settings: Settings,
+    pub reroute: Option<ReRoute>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Address {
+    #[serde(default)]
     pub is_matched: bool,
     pub street: String,
     pub house_number: String,
@@ -54,13 +64,41 @@ pub struct Status {
     pub is_international: bool,
     pub web_url: String,
     pub phase: StatusPhase,
+    pub enroute: Option<Enroute>,
     pub is_delivered: bool,
     pub delivery_status: DeliveryStatus,
     pub delivery_location: DeliveryLocation,
     pub delivery: Delivery,
     pub return_eligibility: ReturnEligibility,
-    pub dimensions: Option<String>,
-    pub weight: Option<String>,
+    pub dimensions: Option<Dimensions>,
+    #[serde(deserialize_with = "deserialize_weight")]
+    pub weight: Option<Mass>,
+    pub formatted: Option<FormattedStatus>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Enroute {
+    #[serde(rename = "timeframe")]
+    pub time_frame: TimeFrame,
+    #[serde(rename = "type")]
+    pub enroute_type: EnrouteType,
+    pub trip_information: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeFrame {
+    pub planned_date: Option<DateTime<Utc>>,
+    pub planned_from: Option<DateTime<Utc>>,
+    pub planned_to: Option<DateTime<Utc>>,
+    pub date: Option<DateTime<Utc>>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+    #[serde(rename = "type")]
+    pub time_frame_type: TimeFrameType,
+    pub note: Option<String>,
+    pub deviation_in_minutes: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -105,11 +143,34 @@ pub struct StatusPhase {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReRoute {
+    pub available: bool,
+    pub current_selection: Option<String>,
+    pub availability: ReRouteAvailability,
+    pub unavailability: Option<ReRouteUnavailability>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReRouteUnavailability {
+    pub text: String,
+    pub link: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub title: String,
     #[serde(rename = "box")]
     pub box_type: BoxType,
     pub push_notification: PushStatus,
+}
+
+#[derive(Clone, Debug, Deserialize, Display)]
+pub enum ReRouteAvailability {
+    AvailableAfterFirstAttempt,
+    CustomerRelated,
+    IncorrectStatus,
 }
 
 #[derive(Clone, Debug, Deserialize, Display)]
@@ -123,6 +184,21 @@ pub enum PushStatus {
 pub enum DeliveryStatus {
     Delivered,
     Enroute,
+    EnrouteSpecific,
+    DeliveredAtPickup,
+}
+
+#[derive(Clone, Debug, Deserialize, Display)]
+pub enum TimeFrameType {
+    Specific,
+    Unspecified,
+    OnlyFromTime,
+}
+
+#[derive(Clone, Debug, Deserialize, Display)]
+pub enum EnrouteType {
+    Standard,
+    Tentative,
 }
 
 #[derive(Clone, Debug, Deserialize, Display)]
@@ -148,4 +224,184 @@ pub enum PartyType {
 pub enum LocationType {
     Recipient,
     ServicePoint,
+    Rerouted,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(try_from = "String")]
+pub struct Dimensions {
+    height: Length,
+    width: Length,
+    depth: Length,
+}
+
+fn parse_float(value: &str) -> Result<f32, &'static str> {
+    value
+        .replace(',', ".")
+        .parse()
+        .map_err(|_| "Invalid formatted dimensions")
+}
+
+impl TryFrom<String> for Dimensions {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        lazy_static! {
+            static ref RE: Regex =
+                Regex::new(r"(^\d+(?:,\d+)?) x (\d+(?:,\d+)?) x (\d+(?:,\d+)?) (\w+)$").unwrap();
+        }
+        if let Some(matches) = RE.captures(&value) {
+            let matches: Captures = matches;
+            let h: f32 = parse_float(&matches[1])?;
+            let w: f32 = parse_float(&matches[2])?;
+            let d: f32 = parse_float(&matches[3])?;
+            let unit = &matches[4];
+            match unit {
+                "cm" => Ok(Dimensions {
+                    height: Length::new::<centimeter>(h),
+                    width: Length::new::<centimeter>(w),
+                    depth: Length::new::<centimeter>(d),
+                }),
+                "m" => Ok(Dimensions {
+                    height: Length::new::<meter>(h),
+                    width: Length::new::<meter>(w),
+                    depth: Length::new::<meter>(d),
+                }),
+                _ => Err("Unsupported unit"),
+            }
+        } else {
+            return Err("Invalid formatted dimensions, not matched");
+        }
+    }
+}
+
+pub(crate) fn deserialize_weight<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Mass>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"(^\d+(?:,\d+)?) (\w+)$").unwrap();
+    }
+
+    let value = match <Option<String>>::deserialize(deserializer)? {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    if let Some(matches) = RE.captures(&value) {
+        let matches: Captures = matches;
+        let weight = parse_float(&matches[1]).map_err(de::Error::custom)?;
+        let unit = &matches[2];
+        match unit {
+            "gram" => Ok(Some(Mass::new::<gram>(weight))),
+            "kg" => Ok(Some(Mass::new::<kilogram>(weight))),
+            _ => Err(de::Error::custom("Unsupported unit")),
+        }
+    } else {
+        return Err(de::Error::custom("Malformed weight"));
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawFormattedStatus {
+    title: String,
+    body: String,
+    short: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(try_from = "RawFormattedStatus")]
+pub struct FormattedStatus {
+    title: String,
+    body_raw: String,
+    body_params: Vec<FormattedStatusParams>,
+    short_raw: String,
+    short_params: Vec<FormattedStatusParams>,
+}
+
+#[derive(Clone, Debug)]
+enum FormattedStatusParams {
+    Date(Date<FixedOffset>),
+    DateTime(DateTime<FixedOffset>),
+    DateAbs(DateTime<FixedOffset>),
+    Time(NaiveTime),
+}
+
+impl fmt::Display for FormattedStatusParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FormattedStatusParams::Date(inner) => inner.fmt(f),
+            FormattedStatusParams::DateTime(inner) => inner.fmt(f),
+            FormattedStatusParams::Time(inner) => inner.fmt(f),
+            FormattedStatusParams::DateAbs(inner) => inner.fmt(f),
+        }
+    }
+}
+
+fn err_to_str(err: impl fmt::Display) -> String {
+    format!("{}", err)
+}
+
+impl FormattedStatus {
+    fn extract_params(raw: &str) -> Result<Vec<FormattedStatusParams>, String> {
+        lazy_static! {
+            static ref RE: Regex = Regex::new(r"\{(\w+):([^}]+)\}").unwrap();
+        }
+
+        let mut params = Vec::new();
+
+        for matches in RE.captures_iter(&raw) {
+            let matches: Captures = matches;
+
+            let kind = matches[1].to_lowercase();
+            let value = &matches[2];
+
+            let parsed: FormattedStatusParams = match kind.as_str() {
+                "date" => FormattedStatusParams::Date(
+                    DateTime::parse_from_rfc3339(value)
+                        .map_err(err_to_str)?
+                        .date(),
+                ),
+                "time" => FormattedStatusParams::Time(
+                    DateTime::parse_from_rfc3339(value)
+                        .map_err(err_to_str)?
+                        .time(),
+                ),
+                "datetime" => FormattedStatusParams::DateTime(
+                    DateTime::parse_from_rfc3339(value).map_err(err_to_str)?,
+                ),
+                "dateabs" => FormattedStatusParams::DateAbs(
+                    DateTime::parse_from_rfc3339(value).map_err(err_to_str)?,
+                ),
+                _ => return Err(format!("Invalid type: {}", kind)),
+            };
+            params.push(parsed);
+        }
+
+        Ok(params)
+    }
+}
+
+impl TryFrom<RawFormattedStatus> for FormattedStatus {
+    type Error = String;
+
+    fn try_from(value: RawFormattedStatus) -> Result<Self, Self::Error> {
+        lazy_static! {
+            static ref RE: Regex = Regex::new(r"\{[^}]+\}").unwrap();
+        }
+
+        let body_params = Self::extract_params(&value.body)?;
+        let short_params = Self::extract_params(&value.short)?;
+
+        Ok(FormattedStatus {
+            title: value.title,
+            body_raw: RE.replace_all(&value.body, "{}").to_string(),
+            body_params,
+            short_raw: RE.replace_all(&value.short, "{}").to_string(),
+            short_params,
+        })
+    }
 }
