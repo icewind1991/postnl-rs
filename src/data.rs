@@ -186,6 +186,7 @@ pub enum DeliveryStatus {
     Enroute,
     EnrouteSpecific,
     DeliveredAtPickup,
+    EnrouteWholeDayOrUnspecified,
 }
 
 #[derive(Clone, Debug, Deserialize, Display)]
@@ -193,6 +194,7 @@ pub enum TimeFrameType {
     Specific,
     Unspecified,
     OnlyFromTime,
+    WholeDay,
 }
 
 #[derive(Clone, Debug, Deserialize, Display)]
