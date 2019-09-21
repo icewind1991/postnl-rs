@@ -69,6 +69,7 @@ pub struct Status {
     pub delivery_status: DeliveryStatus,
     pub delivery_location: DeliveryLocation,
     pub delivery: Delivery,
+    pub extra_information: Vec<ExtraStatusInformation>,
     pub return_eligibility: ReturnEligibility,
     pub dimensions: Option<Dimensions>,
     #[serde(deserialize_with = "deserialize_weight")]
@@ -159,6 +160,25 @@ pub struct ReRouteUnavailability {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExtraStatusInformation {
+    data: ExtraStatusInformationData,
+    #[serde(rename = "type")]
+    information_type: ExtraStatusInformationType,
+}
+
+#[derive(Clone, Debug, Deserialize, Display)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraStatusInformationData {
+    text: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Display)]
+pub enum ExtraStatusInformationType {
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub title: String,
     #[serde(rename = "box")]
@@ -232,9 +252,9 @@ pub enum LocationType {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(try_from = "String")]
 pub struct Dimensions {
-    height: Length,
-    width: Length,
-    depth: Length,
+    pub height: Length,
+    pub width: Length,
+    pub depth: Length,
 }
 
 fn parse_float(value: &str) -> Result<f32, &'static str> {
