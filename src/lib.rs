@@ -1,33 +1,27 @@
 use crate::data::Package;
 use maplit::hashmap;
 use parse_display::Display;
-use reqwest::header;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
-use reqwest::{Client, Method, StatusCode};
 use serde::Deserialize;
-use std::cell::RefCell;
-use std::ops::DerefMut;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use surf::{Client, Response};
 
 pub mod data;
 
 #[derive(Debug)]
 pub enum Error {
-    ClientInitializationFailed(reqwest::Error),
-    NetworkError(reqwest::Error),
-    JSONError(reqwest::Error),
+    NetworkError(surf::Exception),
+    JSONError(std::io::Error),
 }
 
-impl Error {
-    pub fn client(err: reqwest::Error) -> Self {
-        Error::ClientInitializationFailed(err)
-    }
-
-    pub fn network(err: reqwest::Error) -> Self {
+impl From<surf::Exception> for Error {
+    fn from(err: surf::Exception) -> Self {
         Error::NetworkError(err)
     }
+}
 
-    pub fn json(err: reqwest::Error) -> Self {
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
         Error::JSONError(err)
     }
 }
@@ -47,7 +41,8 @@ struct AccessToken(String);
 #[derive(Display, Clone, Debug)]
 struct RefreshToken(String);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
+#[serde(from = "RawToken")]
 struct Token {
     access: AccessToken,
     refresh: RefreshToken,
@@ -73,8 +68,7 @@ impl From<RawToken> for Token {
 pub struct PostNL {
     username: String,
     password: String,
-    token: RefCell<Option<Token>>,
-    client: Client,
+    token: Mutex<Option<Token>>,
 }
 
 static AUTHENTICATE_URL: &str = "https://jouw.postnl.nl/mobile/token";
@@ -84,83 +78,76 @@ static _LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters";
 static _VALIDATE_LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters/validation";
 
 impl PostNL {
-    pub fn new(username: impl ToString, password: impl ToString) -> Result<Self> {
-        let mut headers = header::HeaderMap::new();
-        headers.insert("api-version", header::HeaderValue::from_static("4.16"));
-        headers.insert(
-            "X-Client-Library",
-            header::HeaderValue::from_static("postnl-rs"),
-        );
-
-        Ok(PostNL {
+    pub fn new(username: impl ToString, password: impl ToString) -> Self {
+        PostNL {
             username: username.to_string(),
             password: password.to_string(),
-            token: RefCell::default(),
-            client: Client::builder()
-                .default_headers(headers)
-                .build()
-                .map_err(Error::client)?,
-        })
+            token: Mutex::default(),
+        }
     }
 
     /// Ensure that we have valid credentials
-    fn authenticate(&self) -> Result<AccessToken> {
-        let mut mut_ref = self.token.borrow_mut();
-        let option = mut_ref.deref_mut();
-        match option {
-            Some(token) if token.need_refresh() => *token = self.refresh_token(token)?,
-            None => *option = Some(self.new_token()?),
-            _ => {}
+    async fn authenticate(&self) -> Result<AccessToken> {
+        let token = self.token.lock().unwrap().take();
+
+        let new_token = match token {
+            Some(old_token) => self.refresh_token(old_token).await?,
+            None => self.new_token().await?,
         };
 
-        Ok(option.as_ref().unwrap().access.clone())
+        let access_token = new_token.access.clone();
+
+        self.token.lock().unwrap().replace(new_token);
+
+        Ok(access_token)
     }
 
-    fn new_token(&self) -> Result<Token> {
-        let mut response = self
-            .client
-            .request(Method::POST, AUTHENTICATE_URL)
-            .form(&hashmap! {
+    async fn new_token(&self) -> Result<Token> {
+        Ok(Client::new()
+            .post(AUTHENTICATE_URL)
+            .set_header("api-version", "4.16")
+            .body_form(&hashmap! {
                 "grant_type" => "password",
                 "client_id" => "pwAndroidApp",
                 "username" => &self.username,
                 "password" => &self.password,
             })
-            .send()
-            .map_err(Error::network)?;
-        let raw: RawToken = response.json().map_err(Error::json)?;
-        Ok(raw.into())
+            .unwrap()
+            .recv_json()
+            .await?)
     }
 
-    fn refresh_token(&self, old_token: &Token) -> Result<Token> {
-        let mut response = self
-            .client
-            .request(Method::POST, AUTHENTICATE_URL)
-            .form(&hashmap! {
-                "grant_type" => "refresh_token".to_string(),
-                "refresh_token" => old_token.refresh.to_string()
-            })
-            .send()
-            .map_err(Error::network)?;
-        if response.status() == StatusCode::OK {
-            let raw: RawToken = response.json().map_err(Error::json)?;
-            Ok(raw.into())
+    async fn refresh_token(&self, token: Token) -> Result<Token> {
+        if token.need_refresh() {
+            let mut response: Response = Client::new()
+                .post(AUTHENTICATE_URL)
+                .set_header("api-version", "4.16")
+                .body_form(&hashmap! {
+                    "grant_type" => "refresh_token",
+                    "refresh_token" => &token.refresh.0
+                })
+                .unwrap()
+                .await?;
+            if response.status().is_success() {
+                Ok(response.body_json().await?)
+            } else {
+                self.new_token().await
+            }
         } else {
-            self.new_token()
+            Ok(token)
         }
     }
 
-    pub fn get_packages(&self) -> Result<Vec<Package>> {
-        let token = self.authenticate()?;
-        let mut response = self
-            .client
-            .request(Method::GET, SHIPMENTS_URL)
-            .header(AUTHORIZATION, format!("Bearer {}", token))
-            .header(CONTENT_TYPE, "application/json")
-            .send()
-            .map_err(Error::network)?;
-
-        response.json::<Vec<Package>>().map_err(Error::JSONError)
+    pub async fn get_packages(&self) -> Result<Vec<Package>> {
+        let token = self.authenticate().await?;
+        let auth = format!("Bearer {}", token);
+        Ok(Client::new()
+            .get(SHIPMENTS_URL)
+            .set_header("api-version", "4.16")
+            .set_header("Authorization", &auth)
+            .set_header("Content-Type", "application/json")
+            .recv_json()
+            .await?)
     }
 }
 

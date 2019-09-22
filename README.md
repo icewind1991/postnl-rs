@@ -5,8 +5,8 @@ Rust API client for PostNL consumer api.
 ## Usage
 
 ```rust
-let client = PostNL::new(username, password)?;
-for package in client.get_packages()?.into_iter() {
+let client = PostNL::new(username, password);
+for package in client.get_packages().await?.into_iter() {
     println!(
         "{}({}) - {}",
         package.settings.title, package.key, package.status.delivery_status
