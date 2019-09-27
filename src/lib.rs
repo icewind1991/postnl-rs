@@ -155,7 +155,8 @@ impl PostNL {
             .set_header("api-version", "4.16")
             .set_header("Authorization", &auth)
             .set_header("Content-Type", "application/json")
-            .recv_json()
+            .await?
+            .body_json()
             .await?)
     }
 }
