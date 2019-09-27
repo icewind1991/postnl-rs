@@ -1,10 +1,10 @@
 use dotenv::dotenv;
-use postnl::PostNL;
+use postnl::{PostNL, Error};
 use std::collections::HashMap;
 use std::env;
 
 #[runtime::main]
-async fn main() {
+async fn main() -> Result<(), Error> {
     dotenv().unwrap();
     let env: HashMap<_, _> = env::vars().collect();
 
@@ -12,7 +12,7 @@ async fn main() {
         env.get("USERNAME").expect("username not set"),
         env.get("PASSWORD").expect("password not set"),
     );
-    let packages = client.get_packages().await.unwrap();
+    let packages = client.get_packages().await?;
     for package in packages.into_iter() {
         println!(
             "{}({}) - {} {}",
@@ -26,4 +26,5 @@ async fn main() {
                 .unwrap_or_default()
         );
     }
+    Ok(())
 }

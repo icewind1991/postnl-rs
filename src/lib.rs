@@ -1,4 +1,5 @@
 use crate::data::Package;
+use err_derive::Error;
 use maplit::hashmap;
 use parse_display::Display;
 use serde::Deserialize;
@@ -8,10 +9,14 @@ use surf::{Client, Response};
 
 pub mod data;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
+    #[error(display = "Network error: {}", _0)]
     NetworkError(surf::Exception),
+    #[error(display = "Error while parsing json result: {}", _0)]
     JSONError(std::io::Error),
+    #[error(display = "Invalid credentials")]
+    Authentication,
 }
 
 impl From<surf::Exception> for Error {
@@ -103,7 +108,7 @@ impl PostNL {
     }
 
     async fn new_token(&self) -> Result<Token> {
-        Ok(Client::new()
+        let mut response: Response = Client::new()
             .post(AUTHENTICATE_URL)
             .set_header("api-version", "4.16")
             .body_form(&hashmap! {
@@ -113,8 +118,12 @@ impl PostNL {
                 "password" => &self.password,
             })
             .unwrap()
-            .recv_json()
-            .await?)
+            .await?;
+        if response.status().is_client_error() {
+            Err(Error::Authentication)
+        } else {
+            Ok(response.body_json().await?)
+        }
     }
 
     async fn refresh_token(&self, token: Token) -> Result<Token> {
