@@ -292,7 +292,7 @@ impl TryFrom<String> for Dimensions {
                 _ => Err("Unsupported unit"),
             }
         } else {
-            return Err("Invalid formatted dimensions, not matched");
+            Err("Invalid formatted dimensions, not matched")
         }
     }
 }
@@ -322,7 +322,7 @@ where
             _ => Err(de::Error::custom("Unsupported unit")),
         }
     } else {
-        return Err(de::Error::custom("Malformed weight"));
+        Err(de::Error::custom("Malformed weight"))
     }
 }
 
@@ -415,12 +415,8 @@ impl FormattedStatus {
     }
 
     fn format(format: &str, params: &[FormattedStatusParams]) -> String {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"\{\}").unwrap();
-        }
-
         params.iter().fold(format.to_string(), |result, param| {
-            RE.replace(&result, param.to_string().as_str()).to_string()
+            result.replacen("{}", &param.to_string(), 1)
         })
     }
 }

@@ -81,7 +81,7 @@ impl PostNL {
             username: username.to_string(),
             password: password.to_string(),
             token: Mutex::default(),
-            client: HttpClient::new().map_err(|e| Error::ClientInitialization(e))?,
+            client: HttpClient::new().map_err(Error::ClientInitialization)?,
         })
     }
 
