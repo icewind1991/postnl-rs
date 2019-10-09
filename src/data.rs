@@ -172,7 +172,7 @@ pub struct ExtraStatusInformationData {
     text: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum ExtraStatusInformationType {
     Unknown,
 }
@@ -186,21 +186,21 @@ pub struct Settings {
     pub push_notification: PushStatus,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum ReRouteAvailability {
     AvailableAfterFirstAttempt,
     CustomerRelated,
     IncorrectStatus,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum PushStatus {
     Unavailable,
     On,
     Off,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum DeliveryStatus {
     Delivered,
     Enroute,
@@ -209,7 +209,7 @@ pub enum DeliveryStatus {
     EnrouteWholeDayOrUnspecified,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum TimeFrameType {
     Specific,
     Unspecified,
@@ -217,32 +217,32 @@ pub enum TimeFrameType {
     WholeDay,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum EnrouteType {
     Standard,
     Tentative,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum ShipmentType {
     LetterboxParcel,
     Parcel,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum BoxType {
     Receiver,
     Sender,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum PartyType {
     Recipient,
     Return,
     Sender,
 }
 
-#[derive(Clone, Debug, Deserialize, Display)]
+#[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum LocationType {
     Recipient,
     ServicePoint,

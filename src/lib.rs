@@ -14,25 +14,13 @@ pub mod data;
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(display = "Failed to intialize the client: {}", _0)]
-    ClientInitialization(isahc::Error),
+    ClientInitialization(#[error(source, no_from)] isahc::Error),
     #[error(display = "Network error: {}", _0)]
-    NetworkError(isahc::Error),
+    NetworkError(#[error(source)] isahc::Error),
     #[error(display = "Error while parsing json result: {}", _0)]
-    JSONError(serde_json::Error),
+    JSONError(#[error(source)] serde_json::Error),
     #[error(display = "Invalid credentials")]
     Authentication,
-}
-
-impl From<isahc::Error> for Error {
-    fn from(err: isahc::Error) -> Self {
-        Error::NetworkError(err)
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(err: serde_json::Error) -> Self {
-        Error::JSONError(err)
-    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -158,6 +146,11 @@ impl PostNL {
         } else {
             Ok(token)
         }
+    }
+
+    pub async fn check_credentials(&self) -> Result<()> {
+        self.authenticate().await?;
+        Ok(())
     }
 
     pub async fn get_packages(&self) -> Result<Vec<Package>> {
