@@ -85,6 +85,7 @@ impl FormattedStatus {
         Ok(params)
     }
 
+    // TODO: nicer formatting
     pub fn short(&self) -> String {
         Self::format(&self.short_raw, &self.short_params)
     }
@@ -119,4 +120,20 @@ impl TryFrom<RawFormattedStatus> for FormattedStatus {
             short_params,
         })
     }
+}
+
+#[test]
+fn test_formatting() {
+    use std::convert::TryInto;
+
+    let raw = RawFormattedStatus {
+        title: "Bezorgd op".to_string(),
+        body: "{DateAbs:2019-08-27T12:28:12+02:00}\n{time:2019-08-27T12:28:12+02:00} uur"
+            .to_string(),
+        short: "Bezorgd op {dateAbs:2019-08-27T12:28:12+02:00}".to_string(),
+    };
+
+    let formatted: FormattedStatus = raw.try_into().unwrap();
+    assert_eq!(formatted.short(), "Bezorgd op 2019-08-27 12:28:12 +02:00");
+    assert_eq!(formatted.body(), "2019-08-27 12:28:12 +02:00\n12:28:12 uur");
 }
