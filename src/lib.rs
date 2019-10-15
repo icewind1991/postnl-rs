@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 pub mod data;
+pub mod formatted;
 
 #[derive(Debug, Error)]
 pub enum Error {
