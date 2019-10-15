@@ -1,15 +1,9 @@
-use crate::formatted::FormattedStatus;
+pub use crate::dimensions::{Dimensions, Weight};
+pub use crate::formatted::FormattedStatus;
 use chrono::{DateTime, Utc};
 use iso_country::Country;
-use lazy_static::lazy_static;
 use parse_display::Display;
-use regex::{Captures, Regex};
-use serde::de::{self, Deserializer};
-use serde::export::TryFrom;
 use serde::Deserialize;
-use uom::si::f32::{Length, Mass};
-use uom::si::length::{centimeter, meter};
-use uom::si::mass::{gram, kilogram};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,8 +66,7 @@ pub struct Status {
     pub extra_information: Vec<ExtraStatusInformation>,
     pub return_eligibility: ReturnEligibility,
     pub dimensions: Option<Dimensions>,
-    #[serde(deserialize_with = "deserialize_weight")]
-    pub weight: Option<Mass>,
+    pub weight: Option<Weight>,
     pub formatted: Option<FormattedStatus>,
 }
 
@@ -247,81 +240,4 @@ pub enum LocationType {
     Recipient,
     ServicePoint,
     Rerouted,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(try_from = "String")]
-pub struct Dimensions {
-    pub height: Length,
-    pub width: Length,
-    pub depth: Length,
-}
-
-fn parse_float(value: &str) -> Result<f32, &'static str> {
-    value
-        .replace(',', ".")
-        .parse()
-        .map_err(|_| "Invalid formatted dimensions")
-}
-
-impl TryFrom<String> for Dimensions {
-    type Error = &'static str;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        lazy_static! {
-            static ref RE: Regex =
-                Regex::new(r"(^\d+(?:,\d+)?) x (\d+(?:,\d+)?) x (\d+(?:,\d+)?) (\w+)$").unwrap();
-        }
-        if let Some(matches) = RE.captures(&value) {
-            let matches: Captures = matches;
-            let h: f32 = parse_float(&matches[1])?;
-            let w: f32 = parse_float(&matches[2])?;
-            let d: f32 = parse_float(&matches[3])?;
-            let unit = &matches[4];
-            match unit {
-                "cm" => Ok(Dimensions {
-                    height: Length::new::<centimeter>(h),
-                    width: Length::new::<centimeter>(w),
-                    depth: Length::new::<centimeter>(d),
-                }),
-                "m" => Ok(Dimensions {
-                    height: Length::new::<meter>(h),
-                    width: Length::new::<meter>(w),
-                    depth: Length::new::<meter>(d),
-                }),
-                _ => Err("Unsupported unit"),
-            }
-        } else {
-            Err("Invalid formatted dimensions, not matched")
-        }
-    }
-}
-
-pub(crate) fn deserialize_weight<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Mass>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"(^\d+(?:,\d+)?) (\w+)$").unwrap();
-    }
-
-    let value = match <Option<String>>::deserialize(deserializer)? {
-        Some(value) => value,
-        None => return Ok(None),
-    };
-
-    if let Some(matches) = RE.captures(&value) {
-        let matches: Captures = matches;
-        let weight = parse_float(&matches[1]).map_err(de::Error::custom)?;
-        let unit = &matches[2];
-        match unit {
-            "gram" => Ok(Some(Mass::new::<gram>(weight))),
-            "kg" => Ok(Some(Mass::new::<kilogram>(weight))),
-            _ => Err(de::Error::custom("Unsupported unit")),
-        }
-    } else {
-        Err(de::Error::custom("Malformed weight"))
-    }
 }
