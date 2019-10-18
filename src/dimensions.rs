@@ -59,7 +59,7 @@ fn test_parse_dimensions() {
         Dimensions {
             height: 0.21,
             width: 0.3,
-            depth: 0.405
+            depth: 0.405,
         },
         dimensions
     );
@@ -71,7 +71,7 @@ fn test_parse_dimensions() {
         Dimensions {
             height: 2.0,
             width: 1.0,
-            depth: 1.0
+            depth: 1.0,
         },
         dimensions
     );

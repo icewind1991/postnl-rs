@@ -10,12 +10,12 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 pub mod data;
-mod formatted;
 mod dimensions;
+mod formatted;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error(display = "Failed to intialize the client: {}", _0)]
+    #[error(display = "Failed to initialize the client: {}", _0)]
     ClientInitialization(#[error(source, no_from)] isahc::Error),
     #[error(display = "Network error: {}", _0)]
     NetworkError(#[error(source)] isahc::Error),
