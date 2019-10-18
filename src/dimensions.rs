@@ -1,17 +1,16 @@
 use once_cell::sync::Lazy;
+use parse_display::Display;
 use regex::Regex;
 use serde::export::TryFrom;
 use serde::Deserialize;
-use uom::si::f32::{Length, Mass};
-use uom::si::length::{centimeter, meter};
-use uom::si::mass::{gram, kilogram};
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Display)]
 #[serde(try_from = "String")]
+#[display("{height} x {width} x {depth}m")]
 pub struct Dimensions {
-    pub height: Length,
-    pub width: Length,
-    pub depth: Length,
+    pub height: f32,
+    pub width: f32,
+    pub depth: f32,
 }
 
 fn parse_float(value: &str) -> Result<f32, &'static str> {
@@ -33,19 +32,16 @@ impl TryFrom<String> for Dimensions {
             let w: f32 = parse_float(&matches[2])?;
             let d: f32 = parse_float(&matches[3])?;
             let unit = &matches[4];
-            match unit {
-                "cm" => Ok(Dimensions {
-                    height: Length::new::<centimeter>(h),
-                    width: Length::new::<centimeter>(w),
-                    depth: Length::new::<centimeter>(d),
-                }),
-                "m" => Ok(Dimensions {
-                    height: Length::new::<meter>(h),
-                    width: Length::new::<meter>(w),
-                    depth: Length::new::<meter>(d),
-                }),
-                _ => Err("Unsupported unit"),
-            }
+            let multiplier = match unit {
+                "cm" => 100.0,
+                "m" => 1.0,
+                _ => return Err("Unsupported unit"),
+            };
+            Ok(Dimensions {
+                height: h / multiplier,
+                width: w / multiplier,
+                depth: d / multiplier,
+            })
         } else {
             Err("Invalid formatted dimensions, not matched")
         }
@@ -61,9 +57,9 @@ fn test_parse_dimensions() {
 
     assert_eq!(
         Dimensions {
-            height: Length::new::<centimeter>(21.0),
-            width: Length::new::<centimeter>(30.0),
-            depth: Length::new::<centimeter>(40.5),
+            height: 0.21,
+            width: 0.3,
+            depth: 0.405
         },
         dimensions
     );
@@ -73,17 +69,18 @@ fn test_parse_dimensions() {
 
     assert_eq!(
         Dimensions {
-            height: Length::new::<meter>(2.0),
-            width: Length::new::<meter>(1.0),
-            depth: Length::new::<meter>(1.0),
+            height: 2.0,
+            width: 1.0,
+            depth: 1.0
         },
         dimensions
     );
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Display)]
 #[serde(try_from = "String")]
-pub struct Weight(Mass);
+#[display("{0}kg")]
+pub struct Weight(f32);
 
 static WEIGHT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^\d+(?:,\d+)?) (\w+)$").unwrap());
 
@@ -94,11 +91,12 @@ impl TryFrom<String> for Weight {
         if let Some(matches) = WEIGHT_REGEX.captures(&value) {
             let weight = parse_float(&matches[1])?;
             let unit = &matches[2];
-            match unit {
-                "gram" => Ok(Weight(Mass::new::<gram>(weight))),
-                "kg" => Ok(Weight(Mass::new::<kilogram>(weight))),
-                _ => Err("Unsupported unit"),
-            }
+            let multiplier = match unit {
+                "gram" => 1000.0,
+                "kg" => 1.0,
+                _ => return Err("Unsupported unit"),
+            };
+            Ok(Weight(weight / multiplier))
         } else {
             Err("Malformed weight")
         }
@@ -112,10 +110,10 @@ fn test_parse_weight() {
     let input = "3 kg".to_string();
     let weight: Weight = input.try_into().unwrap();
 
-    assert_eq!(Weight(Mass::new::<kilogram>(3.0)), weight);
+    assert_eq!(Weight(3.0), weight);
 
     let input = "300 gram".to_string();
     let weight: Weight = input.try_into().unwrap();
 
-    assert_eq!(Weight(Mass::new::<gram>(300.0)), weight);
+    assert_eq!(Weight(0.3), weight);
 }
