@@ -1,5 +1,5 @@
-use lazy_static::lazy_static;
-use regex::{Captures, Regex};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::export::TryFrom;
 use serde::Deserialize;
 use uom::si::f32::{Length, Mass};
@@ -21,16 +21,14 @@ fn parse_float(value: &str) -> Result<f32, &'static str> {
         .map_err(|_| "Invalid formatted dimensions")
 }
 
+static DIMENSIONS_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(^\d+(?:,\d+)?) x (\d+(?:,\d+)?) x (\d+(?:,\d+)?) (\w+)$").unwrap());
+
 impl TryFrom<String> for Dimensions {
     type Error = &'static str;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        lazy_static! {
-            static ref RE: Regex =
-                Regex::new(r"(^\d+(?:,\d+)?) x (\d+(?:,\d+)?) x (\d+(?:,\d+)?) (\w+)$").unwrap();
-        }
-        if let Some(matches) = RE.captures(&value) {
-            let matches: Captures = matches;
+        if let Some(matches) = DIMENSIONS_REGEX.captures(&value) {
             let h: f32 = parse_float(&matches[1])?;
             let w: f32 = parse_float(&matches[2])?;
             let d: f32 = parse_float(&matches[3])?;
@@ -87,16 +85,13 @@ fn test_parse_dimensions() {
 #[serde(try_from = "String")]
 pub struct Weight(Mass);
 
+static WEIGHT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(^\d+(?:,\d+)?) (\w+)$").unwrap());
+
 impl TryFrom<String> for Weight {
     type Error = &'static str;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"(^\d+(?:,\d+)?) (\w+)$").unwrap();
-        }
-
-        if let Some(matches) = RE.captures(&value) {
-            let matches: Captures = matches;
+        if let Some(matches) = WEIGHT_REGEX.captures(&value) {
             let weight = parse_float(&matches[1])?;
             let unit = &matches[2];
             match unit {

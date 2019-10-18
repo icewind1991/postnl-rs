@@ -1,5 +1,5 @@
 use chrono::{Date, DateTime, FixedOffset, NaiveTime};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use regex::{Captures, Regex};
 use serde::export::TryFrom;
 use serde::Deserialize;
@@ -46,15 +46,14 @@ fn err_to_str(err: impl fmt::Display) -> String {
     format!("{}", err)
 }
 
+static EXTRACT_FORMATTED_PARAMS_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\{(\w+):([^}]+)\}").unwrap());
+
 impl FormattedStatus {
     fn extract_params(raw: &str) -> Result<Vec<FormattedStatusParams>, String> {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"\{(\w+):([^}]+)\}").unwrap();
-        }
-
         let mut params = Vec::new();
 
-        for matches in RE.captures_iter(&raw) {
+        for matches in EXTRACT_FORMATTED_PARAMS_REGEX.captures_iter(&raw) {
             let matches: Captures = matches;
 
             let kind = matches[1].to_lowercase();
@@ -101,22 +100,25 @@ impl FormattedStatus {
     }
 }
 
+static REPLACE_FORMATTED_PARAMS_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\{[^}]+\}").unwrap());
+
 impl TryFrom<RawFormattedStatus> for FormattedStatus {
     type Error = String;
 
     fn try_from(value: RawFormattedStatus) -> Result<Self, Self::Error> {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"\{[^}]+\}").unwrap();
-        }
-
         let body_params = Self::extract_params(&value.body)?;
         let short_params = Self::extract_params(&value.short)?;
 
         Ok(FormattedStatus {
             title: value.title,
-            body_raw: RE.replace_all(&value.body, "{}").to_string(),
+            body_raw: REPLACE_FORMATTED_PARAMS_REGEX
+                .replace_all(&value.body, "{}")
+                .to_string(),
             body_params,
-            short_raw: RE.replace_all(&value.short, "{}").to_string(),
+            short_raw: REPLACE_FORMATTED_PARAMS_REGEX
+                .replace_all(&value.short, "{}")
+                .to_string(),
             short_params,
         })
     }
