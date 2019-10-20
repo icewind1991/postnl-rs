@@ -1,13 +1,11 @@
 use crate::data::Package;
 use err_derive::Error;
-use isahc::prelude::{Request, Response};
-use isahc::{Body, HttpClient, ResponseExt};
-use maplit::hashmap;
 use parse_display::Display;
 use serde::Deserialize;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use reqwest::Response;
 
 pub mod data;
 mod dimensions;
@@ -16,9 +14,9 @@ mod formatted;
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(display = "Failed to initialize the client: {}", _0)]
-    ClientInitialization(#[error(source, no_from)] isahc::Error),
+    ClientInitialization(#[error(source, no_from)] reqwest::Error),
     #[error(display = "Network error: {}", _0)]
-    NetworkError(#[error(source)] isahc::Error),
+    NetworkError(#[error(source)] reqwest::Error),
     #[error(display = "Error while parsing json result: {}", _0)]
     JSONError(#[error(source)] serde_json::Error),
     #[error(display = "Invalid credentials")]
@@ -68,7 +66,7 @@ pub struct PostNL {
     username: String,
     password: String,
     token: Mutex<Option<Token>>,
-    client: HttpClient,
+    client: reqwest::Client,
 }
 
 static AUTHENTICATE_URL: &str = "https://jouw.postnl.nl/mobile/token";
@@ -79,11 +77,17 @@ static _VALIDATE_LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters/
 
 impl PostNL {
     pub fn new(username: impl ToString, password: impl ToString) -> Result<Self> {
+        use reqwest::header;
+        let mut headers = header::HeaderMap::new();
+        headers.insert("api-version", header::HeaderValue::from_static("4.16"));
+
         Ok(PostNL {
             username: username.to_string(),
             password: password.to_string(),
             token: Mutex::default(),
-            client: HttpClient::new().map_err(Error::ClientInitialization)?,
+            client: reqwest::Client::builder()
+                .default_headers(headers)
+                .build()?,
         })
     }
 
@@ -104,44 +108,34 @@ impl PostNL {
     }
 
     async fn new_token(&self) -> Result<Token> {
-        let request = Request::post(AUTHENTICATE_URL)
-            .header("api-version", "4.16")
-            .body(
-                serde_urlencoded::to_string(hashmap! {
-                    "grant_type" => "password",
-                    "client_id" => "pwAndroidApp",
-                    "username" => &self.username,
-                    "password" => &self.password,
-                })
-                .unwrap(),
-            )
-            .unwrap();
-
-        let mut response: Response<Body> = self.client.send_async(request).await?;
+        let response: Response = self.client.post(AUTHENTICATE_URL)
+            .form(&[
+                ("grant_type", "password"),
+                ("client_id", "pwAndroidApp"),
+                ("username", &self.username),
+                ("password", &self.password),
+            ])
+            .send()
+            .await?;
         if response.status().is_client_error() {
             Err(Error::Authentication)
         } else {
-            Ok(response.json()?)
+            Ok(response.json().await?)
         }
     }
 
     async fn refresh_token(&self, token: Token) -> Result<Token> {
         if token.need_refresh() {
-            let request = Request::post(AUTHENTICATE_URL)
-                .header("api-version", "4.16")
-                .body(
-                    serde_urlencoded::to_string(hashmap! {
-                        "grant_type" => "refresh_token",
-                        "refresh_token" => &token.refresh.0
-                    })
-                    .unwrap(),
-                )
-                .unwrap();
-
-            let mut response: Response<Body> = self.client.send_async(request).await?;
+            let response: Response = self.client.post(AUTHENTICATE_URL)
+                .form(&[
+                    ("grant_type", "refresh_token"),
+                    ("refresh_token", &token.refresh.0)
+                ])
+                .send()
+                .await?;
 
             if response.status().is_success() {
-                Ok(response.json()?)
+                Ok(response.json().await?)
             } else {
                 self.new_token().await
             }
@@ -157,17 +151,13 @@ impl PostNL {
 
     pub async fn get_packages(&self) -> Result<Vec<Package>> {
         let token = self.authenticate().await?;
-        let auth = format!("Bearer {}", token);
 
-        let request = Request::get(SHIPMENTS_URL)
-            .header("api-version", "4.16")
-            .header("Content-Type", "application/json")
-            .header("Authorization", &auth)
-            .body(())
-            .unwrap();
-
-        let mut response: Response<Body> = self.client.send_async(request).await?;
-        Ok(response.json()?)
+        Ok(self.client.get(SHIPMENTS_URL)
+            .bearer_auth(token)
+            .send()
+            .await?
+            .json()
+            .await?)
     }
 }
 

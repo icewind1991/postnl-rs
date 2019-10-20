@@ -3,7 +3,7 @@ use postnl::{Error, PostNL};
 use std::collections::HashMap;
 use std::env;
 
-#[runtime::main]
+#[tokio::main]
 async fn main() -> Result<(), Error> {
     dotenv().unwrap();
     let env: HashMap<_, _> = env::vars().collect();
