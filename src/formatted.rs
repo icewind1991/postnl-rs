@@ -37,7 +37,7 @@ impl fmt::Display for FormattedStatusParams {
             FormattedStatusParams::Date(inner) => inner.fmt(f),
             FormattedStatusParams::DateTime(inner) => inner.fmt(f),
             FormattedStatusParams::Time(inner) => inner.fmt(f),
-            FormattedStatusParams::DateAbs(inner) => inner.fmt(f),
+            FormattedStatusParams::DateAbs(inner) => write!(f, "{}", inner.format("%A %e %B")),
         }
     }
 }
@@ -84,7 +84,6 @@ impl FormattedStatus {
         Ok(params)
     }
 
-    // TODO: nicer formatting
     pub fn short(&self) -> String {
         Self::format(&self.short_raw, &self.short_params)
     }
@@ -136,6 +135,6 @@ fn test_formatting() {
     };
 
     let formatted: FormattedStatus = raw.try_into().unwrap();
-    assert_eq!(formatted.short(), "Bezorgd op 2019-08-27 12:28:12 +02:00");
-    assert_eq!(formatted.body(), "2019-08-27 12:28:12 +02:00\n12:28:12 uur");
+    assert_eq!(formatted.short(), "Bezorgd op Tuesday 27 August");
+    assert_eq!(formatted.body(), "Tuesday 27 August\n12:28:12 uur");
 }
