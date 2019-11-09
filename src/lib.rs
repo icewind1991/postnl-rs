@@ -3,9 +3,9 @@ use err_derive::Error;
 use parse_display::Display;
 use serde::Deserialize;
 
+use reqwest::Response;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use reqwest::Response;
 
 pub mod data;
 mod dimensions;
@@ -108,7 +108,9 @@ impl PostNL {
     }
 
     async fn new_token(&self) -> Result<Token> {
-        let response: Response = self.client.post(AUTHENTICATE_URL)
+        let response: Response = self
+            .client
+            .post(AUTHENTICATE_URL)
             .form(&[
                 ("grant_type", "password"),
                 ("client_id", "pwAndroidApp"),
@@ -126,10 +128,12 @@ impl PostNL {
 
     async fn refresh_token(&self, token: Token) -> Result<Token> {
         if token.need_refresh() {
-            let response: Response = self.client.post(AUTHENTICATE_URL)
+            let response: Response = self
+                .client
+                .post(AUTHENTICATE_URL)
                 .form(&[
                     ("grant_type", "refresh_token"),
-                    ("refresh_token", &token.refresh.0)
+                    ("refresh_token", &token.refresh.0),
                 ])
                 .send()
                 .await?;
@@ -152,7 +156,9 @@ impl PostNL {
     pub async fn get_packages(&self) -> Result<Vec<Package>> {
         let token = self.authenticate().await?;
 
-        Ok(self.client.get(SHIPMENTS_URL)
+        Ok(self
+            .client
+            .get(SHIPMENTS_URL)
             .bearer_auth(token)
             .send()
             .await?

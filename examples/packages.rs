@@ -1,10 +1,11 @@
 use dotenv::dotenv;
-use postnl::{Error, PostNL};
+use main_error::MainError;
+use postnl::PostNL;
 use std::collections::HashMap;
 use std::env;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), MainError> {
     dotenv().unwrap();
     let env: HashMap<_, _> = env::vars().collect();
 
