@@ -4,6 +4,7 @@ use parse_display::Display;
 use serde::Deserialize;
 
 use reqwest::Response;
+use reqwest::header;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -21,6 +22,8 @@ pub enum Error {
     JSONError(#[error(source)] serde_json::Error),
     #[error(display = "Invalid credentials")]
     Authentication,
+    #[error(display = "Connection blocked by PostNL")]
+    Blocked,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -69,7 +72,7 @@ pub struct PostNL {
     client: reqwest::Client,
 }
 
-static AUTHENTICATE_URL: &str = "https://jouw.postnl.nl/mobile/token";
+static AUTHENTICATE_URL: &str = "https://jouw.postnl.nl/web/token";
 static SHIPMENTS_URL: &str = "https://jouw.postnl.nl/mobile/api/shipments";
 static _PROFILE_URL: &str = "https://jouw.postnl.nl/mobile/api/profile";
 static _LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters";
@@ -77,9 +80,9 @@ static _VALIDATE_LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters/
 
 impl PostNL {
     pub fn new(username: impl ToString, password: impl ToString) -> Result<Self> {
-        use reqwest::header;
         let mut headers = header::HeaderMap::new();
-        headers.insert("api-version", header::HeaderValue::from_static("4.16"));
+        headers.insert("Api-Version", header::HeaderValue::from_static("4.18"));
+        headers.insert("User-Agent", header::HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; rv:68.0) Gecko/20100101 Firefox/68.0"));
 
         Ok(PostNL {
             username: username.to_string(),
@@ -113,14 +116,18 @@ impl PostNL {
             .post(AUTHENTICATE_URL)
             .form(&[
                 ("grant_type", "password"),
-                ("client_id", "pwAndroidApp"),
+                ("client_id", "pwWebApp"),
                 ("username", &self.username),
                 ("password", &self.password),
             ])
             .send()
             .await?;
         if response.status().is_client_error() {
-            Err(Error::Authentication)
+            if response.headers().get("server") == Some(&header::HeaderValue::from_static("AkamaiGHost")) {
+                Err(Error::Blocked)
+            } else {
+                Err(Error::Authentication)
+            }
         } else {
             Ok(response.json().await?)
         }

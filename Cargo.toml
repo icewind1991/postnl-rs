@@ -12,7 +12,7 @@ name = "postnl"
 path = "src/lib.rs"
 
 [dependencies]
-reqwest = { version = "0.10.0-alpha.1", features = ["json"] }
+reqwest = { version = "0.10.0-alpha.2", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 parse-display = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
