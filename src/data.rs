@@ -1,9 +1,11 @@
 pub use crate::dimensions::{Dimensions, Weight};
 pub use crate::formatted::FormattedStatus;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use iso_country::Country;
 use parse_display::Display;
+use serde::export::TryFrom;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,7 +31,7 @@ pub struct Address {
     pub postal_code: String,
     pub town: String,
     pub country: Country,
-    pub formatted: String,
+    pub formatted: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -196,6 +198,7 @@ pub enum PushStatus {
 #[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
 pub enum DeliveryStatus {
     Delivered,
+    InTransit,
     Enroute,
     EnrouteSpecific,
     DeliveredAtPickup,
@@ -233,6 +236,7 @@ pub enum PartyType {
     Recipient,
     Return,
     Sender,
+    Rerouted,
 }
 
 #[derive(Clone, Debug, Deserialize, Display, Eq, PartialEq)]
@@ -240,4 +244,180 @@ pub enum LocationType {
     Recipient,
     ServicePoint,
     Rerouted,
+    PostOffice,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxPackage {
+    pub shipment_type: ShipmentType,
+    pub effective_date: DateTime<Utc>,
+    pub key: String,
+    pub barcode: String,
+    pub country: String,
+    pub postal_code: String,
+    pub is_international: bool,
+    pub product: InboxProduct,
+    pub description: Option<String>,
+    pub pickup: Option<String>,
+    pub delivery: InboxDelivery,
+    pub before_first_delivery_attempt: bool,
+    pub first_delivery_attempt_failed: bool,
+    pub amounts: HashMap<String, String>,
+    pub enroute: Option<Enroute>,
+    pub extra_information: Vec<ExtraStatusInformation>,
+    pub sender: Option<InboxParty>,
+    pub receiver: Option<InboxParty>,
+    pub original_receiver: Option<InboxParty>,
+    #[serde(rename = "return")]
+    pub return_party: Option<InboxParty>,
+    pub delivery_location: Option<InboxDeliveryLocation>,
+    pub dimensions: InboxDimensions,
+    pub generated_titles: InboxGeneratedTiles,
+    pub order: i32,
+    pub tracked_shipment: InboxTrackedShipment,
+    pub trip_information: Option<String>,
+    pub all_observations: Vec<InboxObservation>,
+    pub is_return_shipment: bool,
+    pub pickup_retail_barcode: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxProduct {
+    pub product_code: String,
+    pub product_option: String,
+    pub product_characteristic: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxDelivery {
+    pub barcode: String,
+    pub status: DeliveryStatus,
+    pub first_delivery_attempt_expired: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxParty {
+    pub address_type: PartyType,
+    pub company_name: Option<String>,
+    pub department_name: Option<String>,
+    pub last_name: Option<String>,
+    pub middle_name: Option<String>,
+    pub first_name: Option<String>,
+    pub street: String,
+    pub house_number: String,
+    pub house_number_suffix: Option<String>,
+    pub building: Option<String>,
+    pub postal_code: String,
+    pub town: String,
+    pub country: Country,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxDeliveryLocation {
+    pub location_type: LocationType,
+    pub partner_id: String,
+    pub location_id: String,
+    pub bls_code: String,
+    pub phone_number: String,
+    pub address: Address,
+    pub name: String,
+    pub list_name: String,
+    pub coordinate: Coordinate,
+    pub business_hours: Vec<OpeningHours>,
+    pub distance: u32,
+    pub services: Vec<String>,
+    pub delivery_date: Option<DateTime<Utc>>,
+}
+
+/// Note that these seem to be reversed for received packages
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxGeneratedTiles {
+    pub receiver: String,
+    pub sender: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxTrackedShipment {
+    pub id: u32,
+    pub barcode: String,
+    pub postal_code: String,
+    pub country: String,
+    pub title: Option<String>,
+    pub list_name_key: String,
+    #[serde(rename = "box")]
+    pub box_type: BoxType,
+    pub status: DeliveryStatus,
+    pub source: String,
+    pub order: Option<String>,
+    pub key: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxObservation {
+    observation_date: DateTime<Utc>,
+    observation_code: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Display)]
+#[display("{height} x {width} x {depth}m")]
+pub struct InboxDimensions {
+    pub height: f32,
+    pub width: f32,
+    pub depth: f32,
+    pub volume: f32,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Coordinate {
+    latitude: f32,
+    longitude: f32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+pub enum Day {
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(try_from = "RawHours")]
+pub struct Hours {
+    from: NaiveTime,
+    to: NaiveTime,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RawHours {
+    from: String,
+    to: String,
+}
+
+impl TryFrom<RawHours> for Hours {
+    type Error = chrono::ParseError;
+
+    fn try_from(value: RawHours) -> Result<Self, Self::Error> {
+        Ok(Hours {
+            from: NaiveTime::parse_from_str(&value.from, "%H:%M")?,
+            to: NaiveTime::parse_from_str(&value.to, "%H:%M")?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpeningHours {
+    day: Day,
+    hours: Vec<Hours>,
 }

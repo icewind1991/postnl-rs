@@ -1,11 +1,12 @@
-use crate::data::Package;
+use crate::data::InboxPackage;
 use err_derive::Error;
 
-use crate::auth::{new_token, refresh_token, AccessToken};
+use crate::auth::{AccessToken, AuthHandler};
 use reqwest::header;
 use std::sync::Mutex;
 
-pub use crate::auth::Token;
+pub use crate::auth::{AuthState, LoggedIn, New, Token};
+use serde::Deserialize;
 
 mod auth;
 pub mod data;
@@ -23,7 +24,9 @@ pub enum Error {
     #[error(display = "Failed to retrieve request validation token for login")]
     NoRequestValidationToken,
     #[error(display = "Failed to validate login request: {}", _0)]
-    ValidateFailure(String),
+    VerificationFailure(String),
+    #[error(display = "Failed to authorize login request: {}", _0)]
+    AuthorizationFailure(String),
     #[error(display = "Failed to retrieve static url for login")]
     NoStaticUrl,
     #[error(display = "Failed to get token: {}", _0)]
@@ -36,21 +39,22 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-pub struct PostNL {
-    username: String,
-    password: String,
+pub struct PostNL<State: AuthState> {
     token: Mutex<Option<Token>>,
     client: reqwest::Client,
+    auth_handler: AuthHandler<State>,
 }
 
-// https://jouw.postnl.nl/web/api/default/inbox ?
-static SHIPMENTS_URL: &str = "https://jouw.postnl.nl/web/api/shipments";
+static INBOX_URL: &str = "https://jouw.postnl.nl/web/api/default/inbox";
+
+// old? api endpoints
+static _SHIPMENTS_URL: &str = "https://jouw.postnl.nl/web/api/shipments";
 static _PROFILE_URL: &str = "https://jouw.postnl.nl/web/api/profile";
 static _LETTERS_URL: &str = "https://jouw.postnl.nl/web/api/letters";
 static _VALIDATE_LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters/validation";
 
-impl PostNL {
-    pub fn new(username: impl ToString, password: impl ToString) -> Result<Self> {
+impl PostNL<New> {
+    pub fn new() -> Result<Self> {
         let mut headers = header::HeaderMap::new();
         headers.insert("Api-Version", header::HeaderValue::from_static("4.18"));
         headers.insert(
@@ -61,24 +65,45 @@ impl PostNL {
         );
 
         Ok(PostNL {
-            username: username.to_string(),
-            password: password.to_string(),
             token: Mutex::default(),
             client: reqwest::Client::builder()
                 .default_headers(headers)
                 .build()?,
+            auth_handler: AuthHandler::new()?,
         })
     }
 
+    pub async fn login(
+        self,
+        username: impl AsRef<str>,
+        password: impl AsRef<str>,
+    ) -> Result<PostNL<LoggedIn>> {
+        let PostNL {
+            token,
+            client,
+            auth_handler,
+        } = self;
+
+        let auth_handler = auth_handler
+            .login(username.as_ref(), password.as_ref())
+            .await?;
+
+        Ok(PostNL {
+            token,
+            client,
+            auth_handler,
+        })
+    }
+}
+
+impl PostNL<LoggedIn> {
     /// Ensure that we have valid credentials
     async fn authenticate(&self) -> Result<AccessToken> {
         let token = self.token.lock().unwrap().take();
 
         let new_token = match token {
-            Some(old_token) => {
-                refresh_token(&self.client, old_token, &self.username, &self.password).await?
-            }
-            None => new_token(&self.username, &self.password).await?,
+            Some(old_token) if !old_token.need_refresh() => old_token,
+            _ => self.auth_handler.generate_token().await?,
         };
 
         let access_token = new_token.access.clone();
@@ -99,21 +124,25 @@ impl PostNL {
         self.token.lock().unwrap().replace(token);
     }
 
-    pub async fn check_credentials(&self) -> Result<()> {
-        self.authenticate().await?;
-        Ok(())
-    }
-
-    pub async fn get_packages(&self) -> Result<Vec<Package>> {
+    pub async fn get_packages(&self) -> Result<Vec<InboxPackage>> {
         let token = self.authenticate().await?;
 
         Ok(self
             .client
-            .get(SHIPMENTS_URL)
+            .get(INBOX_URL)
             .bearer_auth(token)
             .send()
             .await?
-            .json()
-            .await?)
+            .json::<InboxResponse>()
+            .await?
+            .receiver)
     }
+}
+
+#[derive(Deserialize)]
+struct InboxResponse {
+    // last_synchronization_date: DateTime<Utc>,
+    receiver: Vec<InboxPackage>,
+    // sender: Vec<InboxPackage>,
+    // orders: Vec<InboxPackage>,
 }
