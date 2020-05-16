@@ -1,13 +1,13 @@
 use crate::data::Package;
 use err_derive::Error;
-use parse_display::Display;
-use serde::Deserialize;
 
-use reqwest::Response;
+use crate::auth::{new_token, refresh_token, AccessToken};
 use reqwest::header;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
+pub use crate::auth::Token;
+
+mod auth;
 pub mod data;
 mod dimensions;
 mod formatted;
@@ -20,50 +20,21 @@ pub enum Error {
     NetworkError(#[error(source)] reqwest::Error),
     #[error(display = "Error while parsing json result: {}", _0)]
     JSONError(#[error(source)] serde_json::Error),
+    #[error(display = "Failed to retrieve request validation token for login")]
+    NoRequestValidationToken,
+    #[error(display = "Failed to validate login request: {}", _0)]
+    ValidateFailure(String),
+    #[error(display = "Failed to retrieve static url for login")]
+    NoStaticUrl,
+    #[error(display = "Failed to get token: {}", _0)]
+    FailedToken(String),
     #[error(display = "Invalid credentials")]
     Authentication,
-    #[error(display = "Connection blocked by PostNL")]
+    #[error(display = "Connection blocked by PostNL, try again in a while")]
     Blocked,
 }
 
 type Result<T> = std::result::Result<T, Error>;
-
-#[derive(Deserialize)]
-struct RawToken {
-    access_token: String,
-    refresh_token: String,
-    expires_in: u64,
-}
-
-#[derive(Display, Clone, Debug)]
-struct AccessToken(String);
-
-#[derive(Display, Clone, Debug)]
-struct RefreshToken(String);
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(from = "RawToken")]
-struct Token {
-    access: AccessToken,
-    refresh: RefreshToken,
-    expires: Instant,
-}
-
-impl Token {
-    pub fn need_refresh(&self) -> bool {
-        self.expires < Instant::now()
-    }
-}
-
-impl From<RawToken> for Token {
-    fn from(raw: RawToken) -> Self {
-        Token {
-            access: AccessToken(raw.access_token),
-            refresh: RefreshToken(raw.refresh_token),
-            expires: Instant::now() + Duration::from_secs(raw.expires_in - 15),
-        }
-    }
-}
 
 pub struct PostNL {
     username: String,
@@ -72,17 +43,22 @@ pub struct PostNL {
     client: reqwest::Client,
 }
 
-static AUTHENTICATE_URL: &str = "https://jouw.postnl.nl/web/token";
-static SHIPMENTS_URL: &str = "https://jouw.postnl.nl/mobile/api/shipments";
-static _PROFILE_URL: &str = "https://jouw.postnl.nl/mobile/api/profile";
-static _LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters";
+// https://jouw.postnl.nl/web/api/default/inbox ?
+static SHIPMENTS_URL: &str = "https://jouw.postnl.nl/web/api/shipments";
+static _PROFILE_URL: &str = "https://jouw.postnl.nl/web/api/profile";
+static _LETTERS_URL: &str = "https://jouw.postnl.nl/web/api/letters";
 static _VALIDATE_LETTERS_URL: &str = "https://jouw.postnl.nl/mobile/api/letters/validation";
 
 impl PostNL {
     pub fn new(username: impl ToString, password: impl ToString) -> Result<Self> {
         let mut headers = header::HeaderMap::new();
         headers.insert("Api-Version", header::HeaderValue::from_static("4.18"));
-        headers.insert("User-Agent", header::HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; rv:68.0) Gecko/20100101 Firefox/68.0"));
+        headers.insert(
+            "User-Agent",
+            header::HeaderValue::from_static(
+                "Mozilla/5.0 (Windows NT 10.0; rv:68.0) Gecko/20100101 Firefox/68.0",
+            ),
+        );
 
         Ok(PostNL {
             username: username.to_string(),
@@ -99,8 +75,10 @@ impl PostNL {
         let token = self.token.lock().unwrap().take();
 
         let new_token = match token {
-            Some(old_token) => self.refresh_token(old_token).await?,
-            None => self.new_token().await?,
+            Some(old_token) => {
+                refresh_token(&self.client, old_token, &self.username, &self.password).await?
+            }
+            None => new_token(&self.username, &self.password).await?,
         };
 
         let access_token = new_token.access.clone();
@@ -110,49 +88,15 @@ impl PostNL {
         Ok(access_token)
     }
 
-    async fn new_token(&self) -> Result<Token> {
-        let response: Response = self
-            .client
-            .post(AUTHENTICATE_URL)
-            .form(&[
-                ("grant_type", "password"),
-                ("client_id", "pwWebApp"),
-                ("username", &self.username),
-                ("password", &self.password),
-            ])
-            .send()
-            .await?;
-        if response.status().is_client_error() {
-            if response.headers().get("server") == Some(&header::HeaderValue::from_static("AkamaiGHost")) {
-                Err(Error::Blocked)
-            } else {
-                Err(Error::Authentication)
-            }
-        } else {
-            Ok(response.json().await?)
-        }
+    /// Get the authentication token for caching
+    pub async fn get_token(&self) -> Result<Token> {
+        self.authenticate().await?;
+        Ok(self.token.lock().unwrap().as_ref().unwrap().clone())
     }
 
-    async fn refresh_token(&self, token: Token) -> Result<Token> {
-        if token.need_refresh() {
-            let response: Response = self
-                .client
-                .post(AUTHENTICATE_URL)
-                .form(&[
-                    ("grant_type", "refresh_token"),
-                    ("refresh_token", &token.refresh.0),
-                ])
-                .send()
-                .await?;
-
-            if response.status().is_success() {
-                Ok(response.json().await?)
-            } else {
-                self.new_token().await
-            }
-        } else {
-            Ok(token)
-        }
+    /// Set a cached token
+    pub fn set_token(&self, token: Token) {
+        self.token.lock().unwrap().replace(token);
     }
 
     pub async fn check_credentials(&self) -> Result<()> {
@@ -171,13 +115,5 @@ impl PostNL {
             .await?
             .json()
             .await?)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }
