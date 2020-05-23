@@ -229,23 +229,20 @@ impl AuthHandler<LoggedIn> {
             .await?;
 
         let location_header = get_redirect_url(&response)
-            .ok_or_else(|| Error::AuthorizationFailure("No or invalid redirect url".to_string()))?;
+            .ok_or(Error::AuthorizationFailure("No or invalid redirect url"))?;
 
-        let mut location_query_pairs = location_header
-            .query_pairs()
-            .into_owned()
-            .collect::<HashMap<String, String>>();
+        let mut location_query_pairs = location_header.query_pairs().collect::<HashMap<_, _>>();
 
         if let Some(err) = location_query_pairs.remove("error") {
-            return Err(Error::VerificationFailure(err));
+            return Err(Error::VerificationFailure(err.to_string()));
         }
 
         let code = location_query_pairs
             .remove("code")
-            .ok_or_else(|| Error::AuthorizationFailure("No code provided".to_string()))?;
+            .ok_or(Error::AuthorizationFailure("No code provided"))?;
 
         Ok(AuthorizationCode {
-            code,
+            code: code.to_string(),
             code_verifier: auth_params.code_verifier,
         })
     }

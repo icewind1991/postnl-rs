@@ -26,7 +26,7 @@ pub enum Error {
     #[error(display = "Failed to validate login request: {}", _0)]
     VerificationFailure(String),
     #[error(display = "Failed to authorize login request: {}", _0)]
-    AuthorizationFailure(String),
+    AuthorizationFailure(&'static str),
     #[error(display = "Failed to retrieve static url for login")]
     NoStaticUrl,
     #[error(display = "Failed to get token: {}", _0)]
